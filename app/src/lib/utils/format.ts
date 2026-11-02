@@ -1,18 +1,41 @@
-/** ISO currency minor-unit exponents (doc 08 §1: money is stored as integer minor units). */
-const EXPONENTS: Record<string, number> = { USD: 2, NGN: 2, GHS: 2, XOF: 0 };
+/** Currency precision comes from Intl, never an assumed currency. */
+export function currencyDigits(currency: string): number {
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Currency is unavailable");
+  const digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
+  if (digits === undefined) throw new Error("Currency precision is unavailable");
+  return digits;
+}
+
+/** Parse decimal input exactly before converting integer minor units to Number. */
+export function parseMoneyInput(value: string, currency: string): number | null {
+  const digits = currencyDigits(currency);
+  if (value.length > 32) return null;
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match || (match[2]?.length ?? 0) > digits) return null;
+  const integer = BigInt(match[1] + (match[2] ?? "").padEnd(digits, "0"));
+  return integer <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(integer) : null;
+}
+
+export function moneyInputFromMinor(minor: number, currency: string): string {
+  if (!Number.isSafeInteger(minor) || minor < 0) return "";
+  const digits = currencyDigits(currency);
+  const text = String(minor).padStart(digits + 1, "0");
+  return digits === 0 ? text : `${text.slice(0, -digits)}.${text.slice(-digits)}`;
+}
 
 export function minorToMajor(minor: number, currency: string): number {
-  return minor / 10 ** (EXPONENTS[currency] ?? 2);
+  return minor / 10 ** currencyDigits(currency);
 }
 
 export function formatMoney(minor: number | null | undefined, currency: string, compact = false): string {
   if (minor == null || !Number.isFinite(minor) || !/^[A-Z]{3}$/.test(currency)) return "Unavailable";
-  const exponent = EXPONENTS[currency] ?? 2;
+  const exponent = currencyDigits(currency);
   return new Intl.NumberFormat("en", {
     style: "currency",
     currency,
     notation: compact ? "compact" : "standard",
-    maximumFractionDigits: compact ? 1 : exponent === 0 ? 0 : minor % 100 === 0 ? 0 : 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: compact ? 1 : minor % 10 ** exponent === 0 ? 0 : exponent,
   }).format(minorToMajor(minor, currency));
 }
 
